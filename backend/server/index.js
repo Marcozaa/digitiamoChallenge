@@ -1,0 +1,76 @@
+const fetch = require("node-fetch");
+
+const express = require("express");
+
+const PORT = process.env.PORT || 3001;
+
+const app = express();
+
+const cors = require("cors");
+
+app.use(express.json());
+app.use(cors());
+
+app.get("/api", (req, res) => {
+  res.json({ message: "Hello from server!" });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server listening on ${PORT}`);
+});
+
+app.post("/api/HTTP/GET", (req, res) => {
+  const url = req.body.url; // Ottieni l'URL dal frontend
+
+  // Inizia il timer per misurare il tempo di caricamento
+  const startTime = Date.now();
+
+  // Fai una richiesta HTTP al link ricevuto
+  fetch(url)
+    .then((response) => {
+      // Definisci sia statusCode che headers qui dentro
+      const statusCode = response.status; // Definisco statusCode correttamente
+      const headers = [...response.headers]; // Definisco headers correttamente
+      const serverInfo = response.headers.get("Server");
+
+      // Verifica se la richiesta ha avuto successo
+
+      return response
+        .text()
+        .then((body) => ({ statusCode, serverInfo, headers, body }));
+    })
+    .then(({ statusCode, serverInfo, headers, body }) => {
+      if (!statusCode) return; // Prevent execution if statusCode is not set
+
+      // Fine del timer, calcola il tempo di caricamento
+      const endTime = Date.now();
+      const loadTime = endTime - startTime; // Calcola il tempo di caricamento in millisecondi
+
+      const parsedUrl = new URL(url);
+      const fullUrl = req.protocol + "://" + req.get("host") + req.originalUrl;
+      const scheme = parsedUrl.protocol; // e.g., 'http' or 'https'
+      const host = req.get("host"); // e.g., 'example.com'
+      const path = parsedUrl.pathname; // e.g., '/path/to/resource'
+      const query = req.query; // Query parameters as an object
+      const statusLine = `${scheme}/1.1 ${res.statusCode}`;
+
+      // Invio la risposta analizzata al frontend, incluso il tempo di caricamento
+      res.json({
+        message: "Analisi completata con successo",
+        statusCode: statusCode, // Invia lo status code
+        serverInfo: serverInfo, // Invia le informazioni sul server
+        headers: headers, // Invia gli headers
+        body: body, // Invia il corpo della risposta
+        fullUrl: req.body.url,
+        scheme: scheme,
+        host: host,
+        path: path,
+        statusLine: statusLine,
+        hostname: parsedUrl.hostname,
+        loadTime: `${loadTime}`, // Tempo di caricamento in millisecondi
+      });
+    })
+    .catch((error) => {
+      console.error("Error in request:", error);
+    });
+});
