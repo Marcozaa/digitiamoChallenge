@@ -145,57 +145,42 @@ app.post("/api/HTTP/GET", (req, res) => {
 app.post("/api/HTTP/POST", (req, res) => {
   const url = req.body.url; // Ottieni l'URL dal frontend
 
-  // Inizia il timer per misurare il tempo di caricamento
+  // Inizia il timer per misurare il tempo di caricamento della prima richiesta
   const startTime = Date.now();
 
-  // Fai una richiesta HTTP al link ricevuto
-  fetch(url, {
-    method: "POST",
-  })
+  // Fai la prima richiesta HTTP
+  fetch(url, { redirect: "manual", method: "POST" }) // Disabilita i redirect automatici
     .then((response) => {
-      // Definisci sia statusCode che headers qui dentro
-      const statusCode = response.status; // Definisco statusCode correttamente
-      const headers = [...response.headers]; // Definisco headers correttamente
+      const statusCode = response.status;
+      const headers = [...response.headers];
       const serverInfo = response.headers.get("Server");
 
-      // Verifica se la richiesta ha avuto successo
-
-      return response
-        .text()
-        .then((body) => ({ statusCode, serverInfo, headers, body }));
-    })
-    .then(({ statusCode, serverInfo, headers, body }) => {
-      if (!statusCode) return; // Prevent execution if statusCode is not set
-
-      // Fine del timer, calcola il tempo di caricamento
+      // Fine del timer per la prima richiesta
       const endTime = Date.now();
-      const loadTime = endTime - startTime; // Calcola il tempo di caricamento in millisecondi
+      const loadTime = endTime - startTime;
 
       const parsedUrl = new URL(url);
-      const fullUrl = req.protocol + "://" + req.get("host") + req.originalUrl;
-      const scheme = parsedUrl.protocol; // e.g., 'http' or 'https'
-      const host = req.get("host"); // e.g., 'example.com'
-      const path = parsedUrl.pathname; // e.g., '/path/to/resource'
-      const query = req.query; // Query parameters as an object
+      const scheme = parsedUrl.protocol;
+      const host = req.get("host");
+      const path = parsedUrl.pathname;
       const statusLine = `${scheme}/1.1 ${res.statusCode}`;
 
       requestId = generateRequestId(parsedUrl.hostname);
-      // Invio la risposta analizzata al frontend, incluso il tempo di caricamento
-      res.json({
-        message: "Analisi completata con successo",
-        statusCode: statusCode, // Invia lo status code
-        serverInfo: serverInfo, // Invia le informazioni sul server
-        headers: headers, // Invia gli headers
-        body: body, // Invia il corpo della risposta
-        fullUrl: req.body.url,
+
+      const firstRequestData = {
+        message: "Prima richiesta completata con successo",
+        statusCode: statusCode,
+        serverInfo: serverInfo,
+        headers: headers,
+        body: "", // Inizialmente vuoto, sarà riempito con il body se non c'è redirect
+        fullUrl: url,
         scheme: scheme,
         host: host,
         path: path,
+        loadTime: `${loadTime}`,
         statusLine: statusLine,
-        hostname: parsedUrl.hostname,
-        loadTime: `${loadTime}`, // Tempo di caricamento in millisecondi
         requestId: requestId,
-      });
+      };
       saveHttpRequest(
         parsedUrl.hostname,
         scheme,
@@ -206,9 +191,59 @@ app.post("/api/HTTP/POST", (req, res) => {
         path,
         loadTime
       );
+
+      // Se è un redirect (status code 3xx), facciamo una seconda richiesta
+      if (statusCode >= 300 && statusCode < 400) {
+        const redirectUrl = response.headers.get("Location");
+
+        // Fai la seconda richiesta al nuovo URL di reindirizzamento
+        return fetch(redirectUrl).then((redirectResponse) => {
+          const redirectStatusCode = redirectResponse.status;
+          const redirectHeaders = [...redirectResponse.headers];
+          const redirectServerInfo = redirectResponse.headers.get("Server");
+
+          return redirectResponse.text().then((redirectBody) => {
+            // Calcoliamo il tempo di caricamento della seconda richiesta
+            const redirectEndTime = Date.now();
+            const redirectLoadTime = redirectEndTime - endTime;
+
+            const parsedRedirectUrl = new URL(redirectUrl);
+            const redirectPath = parsedRedirectUrl.pathname;
+
+            const secondRequestData = {
+              message: "Seconda richiesta (redirect) completata con successo",
+              statusCode: redirectStatusCode,
+              serverInfo: redirectServerInfo,
+              headers: redirectHeaders,
+              body: redirectBody,
+              fullUrl: redirectUrl,
+              scheme: parsedRedirectUrl.protocol,
+              host: parsedRedirectUrl.hostname,
+              path: redirectPath,
+              loadTime: `${redirectLoadTime}`,
+              statusLine: statusLine,
+            };
+
+            // Invia i dati della prima e della seconda richiesta al frontend
+            res.json({
+              firstRequest: firstRequestData,
+              secondRequest: secondRequestData,
+            });
+          });
+        });
+      }
+
+      // Se non è un redirect, ritorniamo solo la prima risposta
+      return response.text().then((body) => {
+        firstRequestData.body = body;
+        res.json({
+          firstRequest: firstRequestData,
+        });
+      });
     })
     .catch((error) => {
-      console.error("Error in request:", error);
+      console.error("Errore nella richiesta:", error);
+      res.status(500).json({ message: "Errore nella richiesta" });
     });
 });
 
